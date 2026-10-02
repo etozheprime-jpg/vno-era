@@ -1,0 +1,62 @@
+# Deploys VNO Era to GitHub Pages.
+#  • push to main          → deploy the app (no API request)
+#  • Run workflow (manual) → fetch aviationstack once (max DAILY_LIMIT per day), commit data, deploy
+# Only people with write access to this repository can run it manually.
+name: Update arrivals
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          node-version: 20
+
+      - name: Fetch arrivals from aviationstack
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          AVIATIONSTACK_KEY: ${{ secrets.AVIATIONSTACK_KEY }}
+          DAILY_LIMIT: 15
+        run: node tools/fetch-arrivals.mjs
+
+      - name: Commit data
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/arrivals.json
+          git diff --cached --quiet || git commit -m "Update arrivals data"
+          git push
+
+      - name: Prepare site
+        run: |
+          mkdir _site
+          cp -R index.html offline.html styles.css app.js data.js map.js i18n.js sw.js manifest.webmanifest icons splash data _site/
+          touch _site/.nojekyll
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
