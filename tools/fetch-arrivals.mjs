@@ -1,11 +1,10 @@
-// Fetch VNO arrivals from aviationstack once and write data/arrivals.json.
-// Runs in GitHub Actions (key from repository secrets) or locally (key from .env).
-//   node tools/fetch-arrivals.mjs                 — one API request, if today's limit allows
-//   node tools/fetch-arrivals.mjs --seed <file>   — build data/arrivals.json from a saved raw response (no request)
+// One update of data/arrivals.json: AirLabs schedules + live flights (hex) + OpenSky positions.
+// Runs in GitHub Actions (keys from repository secrets) or locally (keys from .env).
+//   node tools/fetch-arrivals.mjs
+// Limits: DAILY_LIMIT updates per Vilnius day, MONTHLY_LIMIT AirLabs requests per calendar month.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { normalize, vilniusDay, AIRPORT } from './aviationstack.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const OUT = join(ROOT, 'data', 'arrivals.json');
@@ -16,54 +15,62 @@ if (existsSync(join(ROOT, '.env'))) {
     if (m && !(m[1] in process.env)) process.env[m[1]] = m[2];
   }
 }
-const KEY = process.env.AVIATIONSTACK_KEY || '';
+// data.js reads browser globals only inside functions; give it harmless stand-ins.
+globalThis.location ??= { hostname: '', pathname: '/' };
+globalThis.navigator ??= { onLine: true };
+const { normalize, fetchSchedules, fetchLive, vilniusDay } = await import('./airlabs.mjs');
+const { fetchStates, attachPositions } = await import('./opensky.mjs');
+
+const KEY = process.env.AIRLABS_KEY || '';
 const DAILY_LIMIT = Number(process.env.DAILY_LIMIT || 15);
-const BASE = process.env.AVIATIONSTACK_HTTPS === '1' ? 'https://api.aviationstack.com' : 'http://api.aviationstack.com'; // Free plan: HTTP only
+const MONTHLY_LIMIT = Number(process.env.MONTHLY_LIMIT || 1000);
+const MAX_PAGES = Number(process.env.MAX_PAGES || 1);
+const PER_UPDATE = MAX_PAGES + 1; // schedules page(s) + one live-flights request
 
 const now = Date.now();
 const day = vilniusDay(now);
-const prev = existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf8')) : { flights: [], usage: {} };
-const usage = prev.usage?.day === day ? { ...prev.usage } : { ...prev.usage, day, count: 0 };
-usage.dailyLimit = DAILY_LIMIT;
+const month = day.slice(0, 7);
+const prev = existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf8')) : {};
+const fresh = prev.source === 'airlabs';
+const old = fresh ? prev.usage || {} : {};
+const usage = {
+  day, count: old.day === day ? old.count || 0 : 0, dailyLimit: DAILY_LIMIT,
+  month, monthRequests: old.month === month ? old.monthRequests || 0 : 0, monthlyLimit: MONTHLY_LIMIT,
+};
 
-let flights = prev.flights || [];
-let fetchedAt = prev.fetchedAt || null;
+let flights = fresh ? prev.flights || [] : [];
+let fetchedAt = fresh ? prev.fetchedAt : null;
+let opensky = fresh ? prev.opensky || null : null;
 let attempt;
 
-const seedIdx = process.argv.indexOf('--seed');
-if (seedIdx > 0) {
-  const seed = JSON.parse(readFileSync(process.argv[seedIdx + 1], 'utf8'));
-  flights = normalize(seed.raw);
-  fetchedAt = seed.fetchedAt;
-  usage.quota = seed.quota;
-  attempt = { at: seed.fetchedAt, ok: true };
-} else if (!KEY) {
-  attempt = { at: now, ok: false, code: 'missing_access_key' };
-} else if (usage.count >= DAILY_LIMIT) {
-  attempt = { at: now, ok: false, code: 'daily_limit' };
-} else if (usage.quota && usage.quota.remaining <= 0 && usage.quota.month === day.slice(0, 7)) {
-  attempt = { at: now, ok: false, code: 'usage_limit_reached' };
-} else {
-  usage.count += 1; // count before the call: a failed call still costs quota
-  try {
-    const res = await fetch(`${BASE}/v1/flights?access_key=${encodeURIComponent(KEY)}&arr_iata=${AIRPORT}&limit=100`, { signal: AbortSignal.timeout(20000) });
-    const lim = res.headers.get('x-quota-limit'), rem = res.headers.get('x-quota-remaining');
-    if (rem != null) usage.quota = { limit: Number(lim) || 100, remaining: Number(rem), month: day.slice(0, 7) };
-    const json = await res.json().catch(() => null);
-    if (!res.ok || !json || json.error) {
-      const e = json?.error || {};
-      attempt = { at: now, ok: false, code: e.code || `http_${res.status}`, message: e.message || res.statusText };
-      if (e.code === 'usage_limit_reached') usage.quota = { ...(usage.quota || { limit: 100 }), remaining: 0, month: day.slice(0, 7) };
-    } else {
-      flights = normalize(json);
-      fetchedAt = now;
-      attempt = { at: now, ok: true };
-    }
-  } catch (err) {
-    attempt = { at: now, ok: false, code: 'network', message: String(err.message || err) };
+if (!KEY) attempt = { at: now, ok: false, code: 'missing_access_key' };
+else if (usage.count >= DAILY_LIMIT) attempt = { at: now, ok: false, code: 'daily_limit' };
+else if (usage.monthRequests + PER_UPDATE > MONTHLY_LIMIT) attempt = { at: now, ok: false, code: 'monthly_limit' };
+else {
+  usage.count += 1;
+  const r = await fetchSchedules(KEY, { maxPages: MAX_PAGES });
+  usage.monthRequests += r.requests;
+  if (process.env.DEBUG_RAW) writeFileSync(join(ROOT, '.cache', 'airlabs-raw.json'), JSON.stringify(r.list));
+  if (r.error && !r.list.length) {
+    attempt = { at: now, ok: false, code: r.error.code, message: r.error.message };
+  } else {
+    flights = normalize(r.list);
+    fetchedAt = now;
+    attempt = { at: now, ok: true, records: r.list.length, requests: r.requests };
+    // Positions are a bonus: any failure here just leaves schedule-based positions.
+    const live = await fetchLive(KEY);
+    usage.monthRequests += 1;
+    let os = null, osError = null;
+    try { os = await fetchStates({ clientId: process.env.OPENSKY_CLIENT_ID, clientSecret: process.env.OPENSKY_CLIENT_SECRET }); }
+    catch (err) { osError = String(err.message || err); }
+    const stats = attachPositions(flights, live.list, os);
+    opensky = { at: os?.time || now, error: osError, live: live.list.length, liveError: live.error?.code || null, ...stats };
   }
 }
+usage.quota = { limit: MONTHLY_LIMIT, remaining: Math.max(0, MONTHLY_LIMIT - usage.monthRequests), month };
 
 mkdirSync(join(ROOT, 'data'), { recursive: true });
-writeFileSync(OUT, JSON.stringify({ source: 'aviationstack', fetchedAt, usage, lastAttempt: attempt, flights }));
-console.log(`${attempt.ok ? 'OK' : 'NOT UPDATED: ' + attempt.code} · flights ${flights.length} · today ${usage.count}/${DAILY_LIMIT} · API quota left ${usage.quota?.remaining ?? '?'}`);
+writeFileSync(OUT, JSON.stringify({ source: 'airlabs', fetchedAt, usage, lastAttempt: attempt, opensky, flights }));
+console.log(`${attempt.ok ? `OK · records ${attempt.records} → flights ${flights.length}` : 'NOT UPDATED: ' + attempt.code + (attempt.message ? ` (${attempt.message})` : '')}`
+  + ` · today ${usage.count}/${DAILY_LIMIT} · month ${usage.monthRequests}/${MONTHLY_LIMIT}`
+  + (opensky ? ` · positions: OpenSky ${opensky.opensky}, AirLabs ${opensky.airlabs} (live list ${opensky.live}${opensky.liveError ? ', error ' + opensky.liveError : ''}${opensky.error ? ', OpenSky error ' + opensky.error : ''})` : ''));

@@ -1,6 +1,7 @@
 // VNO Era — data layer.
 // Two sources share one normalized flight shape:
-//   live — data/arrivals.json, produced by tools/fetch-arrivals.mjs (GitHub Actions, run only by the owner)
+//   live — data/arrivals.json: AirLabs schedules + OpenSky positions, produced by tools/fetch-arrivals.mjs
+//          (GitHub Actions, run only by the repository owner)
 //   demo — deterministic simulated schedule (no network, no API key)
 
 export const CONFIG = {
@@ -267,7 +268,7 @@ export async function fetchArrivals(source = 'live', { force = false } = {}) {
     const json = await res.json().catch(() => null);
     if (!json || !Array.isArray(json.flights)) throw new DataError('no-data');
     return {
-      source: 'live', fetchedAt: json.fetchedAt, usage: json.usage || null, lastAttempt: json.lastAttempt || null,
+      source: 'live', provider: json.source, fetchedAt: json.fetchedAt, usage: json.usage || null, lastAttempt: json.lastAttempt || null, opensky: json.opensky || null,
       flights: json.flights.map(normalizeLive),
     };
   }
@@ -325,8 +326,13 @@ export function derive(f, now = Date.now()) {
 
   // Real position (if the provider sends one) wins over the time-based estimate.
   let pos = null;
-  if (airborne && f.pos && f.pos.lat != null) pos = geoFromVNO(f.pos.lat, f.pos.lon);
-  else if (airborne && ap.x != null) pos = { x: ap.x * (1 - progress), y: ap.y * (1 - progress), dist: ap.dist * (1 - progress) };
+  if (airborne && f.pos && f.pos.lat != null) {
+    // Real fix from OpenSky, then dead-reckoned along the great circle so it reaches VNO at the ETA.
+    const p0 = geoFromVNO(f.pos.lat, f.pos.lon);
+    const span = arr - (f.pos.at || now);
+    const k = span > 0 ? Math.min(1, Math.max(0, (arr - now) / span)) : 0;
+    pos = { x: p0.x * k, y: p0.y * k, dist: p0.dist * k, real: true };
+  } else if (airborne && ap.x != null) pos = { x: ap.x * (1 - progress), y: ap.y * (1 - progress), dist: ap.dist * (1 - progress) };
 
   let tone = 'ok', status = { key: 'ontime' };
   if (phase === 'diverted') { tone = 'bad'; status = { key: 'diverted' }; }

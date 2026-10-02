@@ -1,5 +1,5 @@
 // VNO Era service worker — app-shell caching, offline fallback, notification clicks, push-ready.
-const VERSION = 'vno-era-v1.2.0';
+const VERSION = 'vno-era-v1.3.0';
 const SHELL = [
   './', './index.html', './styles.css', './app.js', './data.js', './map.js', './i18n.js',
   './manifest.webmanifest', './offline.html',

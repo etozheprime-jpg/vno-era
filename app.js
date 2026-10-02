@@ -3,7 +3,7 @@ import { TZ, CONFIG, fetchArrivals, derive, githubRepo } from './data.js';
 import { Radar } from './map.js';
 import { t, setLang, lang, locale, LANGS } from './i18n.js';
 
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 const MIN = 60000;
 const TABS = ['home', 'arrivals', 'map', 'watch', 'settings'];
 const MAP_RANGES = [800, 1600, 2600, 3800];
@@ -53,7 +53,12 @@ const haptic = () => { if (settings.haptics && navigator.vibrate) try { navigato
 const statusText = (f) => t('status.' + f.status.key, { n: f.status.n });
 const phaseText = (f) => t('phase.' + f.phase);
 const vno = () => t('city.vno');
-const errText = (code) => t(`err.${code}`) === `err.${code}` ? t('err.generic') : t(`err.${code}`);
+function errText(code = '') {
+  if (t(`err.${code}`) !== `err.${code}`) return t(`err.${code}`);
+  if (/key/i.test(code)) return t('err.invalid_key');
+  if (/limit|quota/i.test(code)) return t('err.monthly_limit');
+  return t('err.generic');
+}
 
 // ---------- state ----------
 const settings = Object.assign({ theme: 'system', fx: 'auto', interval: 60, haptics: true, lang: 'lt', source: 'live' }, store.get('settings', {}));
@@ -311,7 +316,7 @@ function mountMap(v) {
     <div class="mapv">
       <div class="card map-card">
         <div class="radar-host" id="bigRadar"></div>
-        <div class="map-legend"><span>${t('map.estimated')}</span></div>
+        <div class="map-legend"><span id="mapLegend">${t('map.estimated')}</span></div>
         <div class="map-range" id="mapRange"></div>
         <div id="mapSel"></div>
         <div class="map-tools">
@@ -341,6 +346,8 @@ function updateMap(now, light = false) {
   const sel = state.mapSel && fl.find((f) => f.id === state.mapSel);
   const extra = [info.hidden ? t('map.beyond', { n: info.hidden }) : '', info.noPos ? t('map.noPos', { n: info.noPos }) : ''].filter(Boolean).join(' · ');
   $('#mapSub').textContent = t('inAir', { n: info.airborne });
+  const os = state.snapshot?.opensky;
+  $('#mapLegend').textContent = os?.at && !os.error && fl.some((f) => f.pos?.real) ? t('map.osLegend', { t: tm(os.at) }) : t('map.estimated');
   $('#mapRange').textContent = t('map.range', { km: state.mapRange }) + (extra ? ` · ${extra}` : '');
   $('#map3dBtn').classList.toggle('is-on', radar.host.classList.contains('is-3d'));
   $('#mapSel').innerHTML = sel ? `<button class="map-sel" data-action="open-flight" data-id="${esc(sel.id)}">
