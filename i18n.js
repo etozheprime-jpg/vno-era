@@ -327,12 +327,12 @@ const S = {
   'err.no-data': ['data file not found', 'duomenų failas nerastas', 'файл данных не найден'],
 
   // live data managed by the owner
-  'set.liveOwnerDesc': ['AirLabs · new data is fetched only by the owner', 'AirLabs · naujus duomenis gauna tik savininkas', 'AirLabs · новые данные загружает только владелец'],
+  'set.liveOwnerDesc': ['AirLabs · updated automatically every 3 hours; extra updates only by the owner', 'AirLabs · atnaujinama automatiškai kas 3 val.; papildomai – tik savininkas', 'AirLabs · обновляется автоматически каждые 3 часа; дополнительно — только владелец'],
   'set.today': ['API updates today', 'API atnaujinimų šiandien', 'Обновлений из API сегодня'],
   'set.quotaLeft': ['API requests left this month', 'Šį mėnesį liko API užklausų', 'Осталось запросов API в этом месяце'],
   'set.checkEvery': ['Reload data every', 'Perkrauti duomenis kas', 'Перечитывать данные каждые'],
   'owner.title': ['Owner mode', 'Savininko režimas', 'Режим владельца'],
-  'owner.rowSub': ['Only the owner can fetch new data', 'Naujus duomenis gali gauti tik savininkas', 'Загружать новые данные может только владелец'],
+  'owner.rowSub': ['Only the owner can fetch data between automatic updates', 'Tarp automatinių atnaujinimų duomenis gali gauti tik savininkas', 'Между автообновлениями загружать данные может только владелец'],
   'owner.update': ['Update from AirLabs', 'Atnaujinti iš AirLabs', 'Обновить из AirLabs'],
   'owner.updateSub': ['{left} of {max} left today · takes about 1–2 min', 'Šiandien liko {left} iš {max} · užtrunka apie 1–2 min', 'Сегодня осталось {left} из {max} · займёт 1–2 мин'],
   'owner.limit': ['Daily limit reached ({max}). Available again tomorrow.', 'Pasiektas dienos limitas ({max}). Vėl bus galima rytoj.', 'Дневной лимит исчерпан ({max}). Снова можно будет завтра.'],
