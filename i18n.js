@@ -327,7 +327,7 @@ const S = {
   'err.no-data': ['data file not found', 'duomenų failas nerastas', 'файл данных не найден'],
 
   // live data managed by the owner
-  'set.liveOwnerDesc': ['AirLabs · updated automatically every 3 hours; extra updates only by the owner', 'AirLabs · atnaujinama automatiškai kas 3 val.; papildomai – tik savininkas', 'AirLabs · обновляется автоматически каждые 3 часа; дополнительно — только владелец'],
+  'set.liveOwnerDesc': ['AirLabs · updated automatically about once an hour from 06:30 to 23:45; extra updates only by the owner', 'AirLabs · atnaujinama automatiškai maždaug kas valandą nuo 06:30 iki 23:45; papildomai – tik savininkas', 'AirLabs · обновляется автоматически примерно раз в час с 06:30 до 23:45; дополнительно — только владелец'],
   'set.today': ['API updates today', 'API atnaujinimų šiandien', 'Обновлений из API сегодня'],
   'set.quotaLeft': ['API requests left this month', 'Šį mėnesį liko API užklausų', 'Осталось запросов API в этом месяце'],
   'set.checkEvery': ['Reload data every', 'Perkrauti duomenis kas', 'Перечитывать данные каждые'],

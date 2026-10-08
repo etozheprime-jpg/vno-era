@@ -1,8 +1,8 @@
-# Deploys VNO Era to GitHub Pages.
+# VNO Era: data updates + GitHub Pages deploy.
 #  • push to main          → deploy the app (no API request)
-#  • every 3 hours (schedule) and Run workflow (manual) → fetch AirLabs + OpenSky once, commit data, deploy
-#    Both count toward DAILY_LIMIT: 8 scheduled runs a day leave 7 for manual updates.
-# Only people with write access to this repository can run it manually.
+#  • schedule (every 15 min) → tools/fetch-arrivals.mjs decides whether an update is due: it spreads the
+#    AirLabs monthly budget evenly over the remaining days (06:30–23:45 Vilnius time), then deploys
+#  • Run workflow (manual) → one update right away (owner only), then deploy
 name: Update arrivals
 
 on:
@@ -10,7 +10,7 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    - cron: '17 */3 * * *'   # every 3 hours (UTC); GitHub may start it some minutes late
+    - cron: '*/15 * * * *'   # UTC; GitHub may start it some minutes late
 
 permissions:
   contents: write
@@ -22,13 +22,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  fetch:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      updated: ${{ steps.fetch.outputs.updated }}
     steps:
       - uses: actions/checkout@v4
+        if: github.event_name != 'push'
 
       - uses: actions/setup-node@v4
         if: github.event_name != 'push'
@@ -36,24 +36,39 @@ jobs:
           node-version: 20
 
       - name: Fetch arrivals (AirLabs) and positions (OpenSky)
+        id: fetch
         if: github.event_name != 'push'
         env:
           AIRLABS_KEY: ${{ secrets.AIRLABS_KEY }}
           OPENSKY_CLIENT_ID: ${{ secrets.OPENSKY_CLIENT_ID }}
           OPENSKY_CLIENT_SECRET: ${{ secrets.OPENSKY_CLIENT_SECRET }}
-          DAILY_LIMIT: 15      # updates per day (Vilnius time)
+          AUTO: ${{ github.event_name == 'schedule' && '1' || '' }}
+          DAILY_LIMIT: 30      # hard cap on updates per day (Vilnius time), manual + automatic
           MONTHLY_LIMIT: 1000  # AirLabs Free plan requests per month
+          MANUAL_RESERVE: 20   # requests the scheduler leaves for manual updates
           MAX_PAGES: 1         # schedule pages per update (Free keys: 50 results each); +1 request for live flights
         run: node tools/fetch-arrivals.mjs
 
       - name: Commit data
-        if: github.event_name != 'push'
+        if: steps.fetch.outputs.updated == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/arrivals.json
           git diff --cached --quiet || git commit -m "Update arrivals data"
           git push
+
+  deploy:
+    needs: fetch
+    if: github.event_name == 'push' || needs.fetch.outputs.updated == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Prepare site
         run: |

@@ -3,7 +3,7 @@ import { TZ, CONFIG, fetchArrivals, derive, githubRepo } from './data.js';
 import { Radar } from './map.js';
 import { t, setLang, lang, locale, LANGS } from './i18n.js';
 
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 const MIN = 60000;
 const TABS = ['home', 'arrivals', 'map', 'watch', 'settings'];
 const MAP_RANGES = [800, 1600, 2600, 3800];
